@@ -37,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---- Logo & Title ----
-st.image("deltacore_logo.png", width=180)
+st.image("https://github.com/DeltaCoreAI/DeltaCoreAI/blob/main/Deltacore_logo.png.png?raw=true", width=180)
 st.title("⚡ DeltaCore AI Dashboard")
 st.subheader("Predictive Maintenance & Fuel Intelligence")
 
