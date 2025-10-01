@@ -1,72 +1,112 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
+from datetime import datetime, timedelta
+import joblib
 
-# --- Branding ---
-st.set_page_config(page_title="DeltaCore AI", page_icon="🛠️", layout="wide")
+# -----------------------------
+#  DeltaCore AI Dashboard
+# -----------------------------
 
-st.title("⚡ DeltaCore AI – Equipment Monitoring Dashboard")
-st.markdown("AI-powered machine insights for **Delta Earth, AVA Trade, Jubilee, and beyond.**")
+st.set_page_config(page_title="DeltaCore AI", layout="wide")
 
-# --- Load Data ---
+# ---- Custom Styling ----
+st.markdown("""
+    <style>
+        body {
+            background-color: #0d0d0d;
+            color: #f5f5f5;
+        }
+        .stApp {
+            background-color: #0d0d0d;
+        }
+        h1, h2, h3 {
+            color: #ffeb3b;
+            text-shadow: 0px 0px 10px #ffee58;
+        }
+        .card {
+            padding: 15px;
+            border-radius: 12px;
+            background-color: #1a1a1a;
+            margin: 10px 0;
+            box-shadow: 0 0 15px rgba(255, 235, 59, 0.2);
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# ---- Logo & Title ----
+st.image("deltacore_logo.png", width=180)
+st.title("⚡ DeltaCore AI Dashboard")
+st.subheader("Predictive Maintenance & Fuel Intelligence")
+
+# ---- Generate Mock Data (30 days) ----
 @st.cache_data
-def load_data():
-    return pd.read_csv("mock_data.csv")
+def generate_mock_data():
+    dates = pd.date_range(datetime.now() - timedelta(days=30), datetime.now())
+    data = {
+        "date": dates,
+        "machine_id": ["Excavator-01"] * len(dates),
+        "fuel_usage": np.random.normal(200, 15, len(dates)).round(2),
+        "oil_temp": np.random.normal(85, 5, len(dates)).round(2),
+        "vibration": np.random.normal(0.03, 0.01, len(dates)).round(3),
+        "run_hours": np.random.randint(5, 12, len(dates))
+    }
+    return pd.DataFrame(data)
 
-data = load_data()
+df = generate_mock_data()
 
-# --- Show Raw Data ---
-with st.expander("📊 View Equipment Data"):
-    st.dataframe(data)
+# ---- File Upload ----
+uploaded = st.file_uploader("Upload machine telemetry (CSV)", type=["csv"])
+if uploaded:
+    df = pd.read_csv(uploaded)
 
-# --- Filters ---
-st.sidebar.header("🔎 Filter Options")
-equipment_filter = st.sidebar.multiselect("Select Equipment:", options=data["Equipment"].unique())
-if equipment_filter:
-    data = data[data["Equipment"].isin(equipment_filter)]
+# ---- Train Mock AI Models ----
+X = df[["fuel_usage", "oil_temp", "vibration", "run_hours"]]
 
-# --- KPI Cards ---
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Equipment", len(data["Equipment"].unique()))
-col2.metric("Avg Fuel Efficiency (L/hr)", round(data["Fuel_Consumption"].mean(), 2))
-col3.metric("Avg Hours Run", round(data["Hours_Run"].mean(), 2))
+# Fuel anomaly detection
+iso = IsolationForest(contamination=0.1, random_state=42)
+df["fuel_anomaly"] = iso.fit_predict(X)
+
+# Maintenance risk classifier
+y = np.where((df["oil_temp"] > 95) | (df["vibration"] > 0.05), 1, 0)
+rf = RandomForestClassifier(random_state=42)
+rf.fit(X, y)
+df["maintenance_risk"] = rf.predict(X)
+
+# ---- Dashboard Layout ----
+col1, col2 = st.columns([2,1])
 
 # --- Charts ---
-st.subheader("📈 Equipment Performance Trends")
+with col1:
+    st.header("📊 Machine Telemetry Overview")
 
-fig, ax = plt.subplots()
-for eq in data["Equipment"].unique():
-    eq_data = data[data["Equipment"] == eq]
-    ax.plot(eq_data["Date"], eq_data["Fuel_Consumption"], label=eq)
-ax.set_xlabel("Date")
-ax.set_ylabel("Fuel Consumption (L/hr)")
-ax.legend()
-st.pyplot(fig)
+    fig, ax = plt.subplots(figsize=(10,4))
+    ax.plot(df["date"], df["fuel_usage"], label="Fuel Usage (L/h)", color="#ffee58")
+    anomalies = df[df["fuel_anomaly"] == -1]
+    ax.scatter(anomalies["date"], anomalies["fuel_usage"], color="red", label="Anomaly", zorder=5)
+    ax.set_title("Fuel Usage & Anomalies")
+    ax.legend()
+    st.pyplot(fig)
 
-# --- AI Prediction (Simple Model) ---
-st.subheader("🤖 Predict Future Fuel Consumption")
+    st.dataframe(df.tail(10))
 
-features = ["Hours_Run", "Load_Factor"]
-target = "Fuel_Consumption"
+# --- Alerts ---
+with col2:
+    st.header("🚨 AI Alerts")
 
-X = data[features]
-y = data[target]
+    if df["fuel_anomaly"].iloc[-1] == -1:
+        st.markdown('<div class="card" style="color:red;">⚠️ Fuel Anomaly Detected!</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="card" style="color:lime;">✅ Fuel usage normal</div>', unsafe_allow_html=True)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    latest_risk = df["maintenance_risk"].iloc[-1]
+    if latest_risk == 1:
+        st.markdown('<div class="card" style="color:orange;">🛠 High Maintenance Risk – Inspect Soon</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="card" style="color:cyan;">🔧 Machine Operating Normally</div>', unsafe_allow_html=True)
 
-model = RandomForestRegressor()
-model.fit(X_train, y_train)
-
-preds = model.predict(X_test)
-mae = mean_absolute_error(y_test, preds)
-
-st.write(f"✅ Model trained with MAE: {round(mae, 2)} L/hr")
-
-hours_run = st.slider("Input Hours Run", 0, 500, 100)
-load_factor = st.slider("Input Load Factor (%)", 0, 100, 50)
-
-prediction = model.predict([[hours_run, load_factor]])[0]
-st.success(f"Predicted Fuel Consumption: {round(prediction, 2)} L/hr")
+# ---- Footer ----
+st.markdown("---")
+st.markdown("Powered by **DeltaCore AI** ⚡ | Futuristic Mining Intelligence")
